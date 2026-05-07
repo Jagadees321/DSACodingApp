@@ -1,0 +1,91 @@
+# Judge0 CE — self-hosted code execution (Linux recommended; isolate needs privileged).
+# Edit judge0.conf — set POSTGRES_PASSWORD, REDIS_PASSWORD (and optional AUTHN_TOKEN).
+# Then: docker compose up -d
+#
+# Point RoyalDSA backend at: JUDGE0_BASE_URL=http://localhost:2358
+# If AUTHN_TOKEN is set in judge0.conf, set JUDGE0_AUTH_TOKEN in backend .env to match.
+
+x-logging: &default-logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "100m"
+      max-file: "3"
+
+services:
+  redis:
+    image: redis:7.2-alpine
+    container_name: judge0-redis
+    env_file:
+      - ./judge0.conf
+    command: ["sh", "-c", "exec redis-server --appendonly no --requirepass \"$$REDIS_PASSWORD\""]
+    restart: always
+    <<: *default-logging
+    networks:
+      - judge0
+
+  db:
+    image: postgres:16.2-alpine
+    container_name: judge0-db
+    env_file:
+      - ./judge0.conf
+    environment:
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - judge0-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U judge0 -d judge0"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: always
+    <<: *default-logging
+    networks:
+      - judge0
+
+  server:
+    image: judge0/judge0:latest
+    container_name: judge0-api
+    volumes:
+      - ./judge0.conf:/judge0.conf:ro
+    ports:
+      - "${JUDGE0_PUBLISH_PORT:-2358}:2358"
+    privileged: true
+    env_file:
+      - ./judge0.conf
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: always
+    <<: *default-logging
+    networks:
+      - judge0
+
+  worker:
+    image: judge0/judge0:latest
+    container_name: judge0-worker
+    command: ["./scripts/workers"]
+    volumes:
+      - ./judge0.conf:/judge0.conf:ro
+    privileged: true
+    env_file:
+      - ./judge0.conf
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: always
+    <<: *default-logging
+    networks:
+      - judge0
+
+volumes:
+  judge0-postgres-data:
+
+networks:
+  judge0:
+    name: judge0_network

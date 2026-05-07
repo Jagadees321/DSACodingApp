@@ -1,0 +1,169 @@
+# RoyalDSA server stack: Redis (BullMQ), API + BullMQ worker, Judge0 (API + worker).
+# App data lives in MongoDB Atlas — set MONGODB_URI in `.env` (no MongoDB container).
+# Frontend is not included — deploy the web app separately (see DEPLOY.md).
+# Judge0 requires Linux + privileged isolate (not Docker Desktop Mac). See DEPLOY.md.
+
+name: royaldsa
+
+x-logging: &default-logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "100m"
+      max-file: "3"
+
+# Shared env for API + BullMQ worker (override via repo-root `.env`).
+x-backend-env: &backend-env
+  NODE_ENV: ${NODE_ENV:-production}
+  PORT: ${BACKEND_PORT:-3002}
+  MONGODB_URI: ${MONGODB_URI:?Set MONGODB_URI in .env to your MongoDB Atlas connection string}
+  MONGODB_DB_NAME: ${MONGODB_DB_NAME:-dsa}
+  REDIS_URL: ${REDIS_URL:-redis://redis-app:6379}
+  JUDGE0_BASE_URL: ${JUDGE0_BASE_URL:-http://judge0-api:2358}
+  JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-me-access-secret-min-16-chars}
+  JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-refresh-secret-min16}
+  CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+  FRONTEND_OAUTH_SUCCESS_URL: ${FRONTEND_OAUTH_SUCCESS_URL:-http://localhost:8080/oauth/callback}
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+  GOOGLE_OAUTH_REDIRECT_URI: ${GOOGLE_OAUTH_REDIRECT_URI:-http://localhost:3002/api/v1/auth/oauth/google/callback}
+  GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+  GEMINI_MODEL: ${GEMINI_MODEL:-gemini-flash-latest}
+  GEMINI_FALLBACK_MODELS: ${GEMINI_FALLBACK_MODELS:-gemini-2.0-flash}
+  JUDGE0_AUTH_TOKEN: ${JUDGE0_AUTH_TOKEN:-}
+
+services:
+  redis-app:
+    image: ${REDIS_APP_IMAGE:-redis:7-alpine}
+    restart: unless-stopped
+    networks:
+      - royaldsa
+    <<: *default-logging
+
+  judge0-redis:
+    image: ${JUDGE0_REDIS_IMAGE:-redis:7.2-alpine}
+    container_name: royaldsa-judge0-redis
+    env_file:
+      - ./infra/judge0/judge0.conf
+    command: ["sh", "-c", "exec redis-server --appendonly no --requirepass \"$$REDIS_PASSWORD\""]
+    restart: unless-stopped
+    networks:
+      royaldsa:
+        aliases:
+          - redis
+    <<: *default-logging
+
+  judge0-db:
+    image: ${JUDGE0_POSTGRES_IMAGE:-postgres:16.2-alpine}
+    container_name: royaldsa-judge0-db
+    env_file:
+      - ./infra/judge0/judge0.conf
+    environment:
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - judge0-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U judge0 -d judge0"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      royaldsa:
+        aliases:
+          - db
+    <<: *default-logging
+
+  judge0-api:
+    # Official image is amd64; on Apple Silicon Docker runs it via emulation (warning is normal).
+    platform: linux/amd64
+    image: ${JUDGE0_IMAGE:-judge0/judge0:latest}
+    container_name: royaldsa-judge0-api
+    privileged: true
+    env_file:
+      - ./infra/judge0/judge0.conf
+    environment:
+      REDIS_HOST: ${JUDGE0_INTERNAL_REDIS_HOST:-judge0-redis}
+      POSTGRES_HOST: ${JUDGE0_INTERNAL_DB_HOST:-judge0-db}
+    volumes:
+      - ./infra/judge0/judge0.conf:/judge0.conf:ro
+    ports:
+      - "${JUDGE0_PUBLISH_PORT:-2358}:2358"
+    depends_on:
+      judge0-db:
+        condition: service_healthy
+      judge0-redis:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - royaldsa
+    <<: *default-logging
+
+  judge0-worker:
+    platform: linux/amd64
+    image: ${JUDGE0_IMAGE:-judge0/judge0:latest}
+    container_name: royaldsa-judge0-worker
+    privileged: true
+    command: ["./scripts/workers"]
+    env_file:
+      - ./infra/judge0/judge0.conf
+    environment:
+      REDIS_HOST: ${JUDGE0_INTERNAL_REDIS_HOST:-judge0-redis}
+      POSTGRES_HOST: ${JUDGE0_INTERNAL_DB_HOST:-judge0-db}
+    volumes:
+      - ./infra/judge0/judge0.conf:/judge0.conf:ro
+    depends_on:
+      judge0-db:
+        condition: service_healthy
+      judge0-redis:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - royaldsa
+    <<: *default-logging
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: royaldsa-backend
+    environment:
+      <<: *backend-env
+    ports:
+      # Published host port defaults to BACKEND_PORT; override BACKEND_PUBLISH_PORT only when host≠container port.
+      - "${BACKEND_PUBLISH_PORT:-${BACKEND_PORT:-3002}}:${BACKEND_PORT:-3002}"
+    depends_on:
+      redis-app:
+        condition: service_started
+      judge0-api:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - royaldsa
+    <<: *default-logging
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: royaldsa-worker
+    command: ["node", "dist/workers/judge.worker.js"]
+    environment:
+      <<: *backend-env
+    depends_on:
+      redis-app:
+        condition: service_started
+      judge0-api:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - royaldsa
+    <<: *default-logging
+
+volumes:
+  judge0-postgres-data:
+
+networks:
+  royaldsa:
+    driver: bridge

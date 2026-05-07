@@ -1,0 +1,4 @@
+.env
+
+# Judge0 secrets — commit only judge0.conf.example
+infra/judge0/judge0.conf
