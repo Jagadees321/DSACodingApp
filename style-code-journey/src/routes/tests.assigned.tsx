@@ -14,6 +14,7 @@ export const Route = createFileRoute("/tests/assigned")({
 
 type AssignmentItem = {
   _id: string;
+  createdAt?: string;
   dueAt: string;
   startAt: string;
   status: "scheduled" | "active" | "closed" | "cancelled";
@@ -94,6 +95,34 @@ function splitMinSec(totalSeconds: number): { minutes: number; seconds: number }
   return { minutes: Math.floor(s / 60), seconds: s % 60 };
 }
 
+function assignmentTakeState(a: AssignmentItem): "not_taken" | "in_progress" | "finished" | "upcoming" | "closed" {
+  if (a.effectiveStatus === "cancelled") return "closed";
+  if (!a.isAvailable) {
+    if (a.effectiveStatus === "scheduled") return "upcoming";
+    return "closed";
+  }
+  const st = a.latestSession?.status;
+  if (!st || st === "not_started") return "not_taken";
+  if (st === "in_progress") return "in_progress";
+  return "finished";
+}
+
+function assignmentCardClass(a: AssignmentItem) {
+  const t = assignmentTakeState(a);
+  const base =
+    "rounded-xl border p-4 text-left transition-smooth w-full ";
+  if (t === "upcoming" || t === "closed") {
+    return base + "border-border/50 bg-muted/20 opacity-75";
+  }
+  if (t === "not_taken") {
+    return base + "border-amber-500/45 bg-amber-500/[0.07] hover:bg-amber-500/15";
+  }
+  if (t === "in_progress") {
+    return base + "border-neon-cyan/50 bg-neon-cyan/[0.08] hover:bg-neon-cyan/15";
+  }
+  return base + "border-emerald-600/35 bg-emerald-600/[0.06] hover:bg-emerald-600/12";
+}
+
 type ProblemEdit = {
   language: "java" | "python";
   currentCode: string;
@@ -136,6 +165,13 @@ function TakeAssignedTestPage() {
   /** Hide previous run rows while a new run is in flight; counts/cards refresh when it completes. */
   const displayRun = running ? null : latestRun;
   const displaySampleSummary = sampleCaseSummary(displayRun);
+  const sortedAssignments = useMemo(() => {
+    return [...assignments].sort((a, b) => {
+      const ta = new Date(a.createdAt ?? a.startAt ?? 0).getTime();
+      const tb = new Date(b.createdAt ?? b.startAt ?? 0).getTime();
+      return tb - ta;
+    });
+  }, [assignments]);
   const activeConsole = consoleByProblem[activeProblemId] ?? [];
 
   const loadAssignments = useCallback(async (opts?: { silent?: boolean }) => {
@@ -442,26 +478,39 @@ function TakeAssignedTestPage() {
                   No assigned tests right now.
                 </div>
               )}
-              {assignments.map((a) => (
+              {sortedAssignments.map((a) => {
+                const take = assignmentTakeState(a);
+                const label =
+                  take === "not_taken"
+                    ? "Not started"
+                    : take === "in_progress"
+                      ? "In progress"
+                      : take === "finished"
+                        ? "Submitted"
+                        : take === "upcoming"
+                          ? "Opens soon"
+                          : "Closed";
+                return (
                 <button
                   key={a._id}
                   onClick={() => void openAssignment(a._id)}
                   disabled={!a.isAvailable || !a.test}
-                  className="rounded-xl border border-border/60 bg-card/40 p-4 text-left transition-smooth hover:bg-muted/40 disabled:opacity-60"
+                  className={`${assignmentCardClass(a)}${!a.isAvailable || !a.test ? " opacity-60 cursor-not-allowed" : ""}`}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div>
                       <div className="font-semibold">{a.test?.title ?? "Untitled test"}</div>
                       <div className="text-xs text-muted-foreground">
-                        Due: {new Date(a.dueAt).toLocaleString()} · Status: {a.effectiveStatus}
+                        Due: {new Date(a.dueAt).toLocaleString()} · {label}
                       </div>
                     </div>
-                    <span className="text-xs font-mono px-2 py-1 rounded bg-muted">
+                    <span className="text-xs font-mono px-2 py-1 rounded bg-background/50 border border-border/60">
                       {a.latestSession?.aggregate?.problemsCompleted ?? 0} solved
                     </span>
                   </div>
                 </button>
-              ))}
+              );
+              })}
             </div>
           </section>
         ) : (

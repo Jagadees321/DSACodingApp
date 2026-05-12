@@ -28,6 +28,11 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { requireAuthBeforeLoad } from "@/lib/auth-guard";
 
+type ProgressMe = {
+  summary: { solved: number; totalPublishedProblems: number };
+  solvedSlugs: string[];
+};
+
 export const Route = createFileRoute("/problems/$id")({
   beforeLoad: () => requireAuthBeforeLoad(),
   loader: async ({ params }) => {
@@ -46,13 +51,23 @@ export const Route = createFileRoute("/problems/$id")({
           starter: p.starter,
           tests: p.tests,
         },
+        progressSnapshot: null as null | {
+          solvedCount: number;
+          totalPublished: number;
+          thisSolved: boolean;
+        },
       };
     }
-    const data = await apiGet<any>(`/problems/${params.id}`);
+    const [data, progress] = await Promise.all([
+      apiGet<any>(`/problems/${params.id}`),
+      apiGet<ProgressMe>("/progress/me").catch(() => null),
+    ]);
     if (!data) throw notFound();
+    const slug = data.slug as string;
+    const solvedSlugs = progress?.solvedSlugs ?? [];
     return {
       problem: {
-        id: data.slug,
+        id: slug,
         title: data.title,
         level: data.level,
         topic: data.category,
@@ -63,6 +78,13 @@ export const Route = createFileRoute("/problems/$id")({
         ...(data.solution ? { solution: data.solution } : {}),
         tests: (data.testCases ?? []).map((t: any) => ({ input: t.stdin, expected: t.expectedOutput })),
       },
+      progressSnapshot: progress
+        ? {
+            solvedCount: progress.summary.solved,
+            totalPublished: progress.summary.totalPublishedProblems,
+            thisSolved: solvedSlugs.includes(slug),
+          }
+        : null,
     };
   },
   head: ({ loaderData }) => ({
@@ -122,7 +144,7 @@ function loadCodePaneTheme(): "match" | "black" {
 }
 
 function ProblemPage() {
-  const { problem } = Route.useLoaderData();
+  const { problem, progressSnapshot } = Route.useLoaderData();
   const [lang, setLang] = useState<"java" | "python">("python");
   const [code, setCode] = useState({
     java: problem.starter.java,
@@ -328,17 +350,38 @@ function ProblemPage() {
     <div className="min-h-screen flex flex-col">
       <NavBar />
       <div className="border-b border-border/50 bg-card/40 backdrop-blur">
-        <div className="mx-auto max-w-[1600px] px-4 md:px-6 py-3 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
+        <div className="mx-auto max-w-[1600px] px-4 md:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0 flex-wrap flex-1">
             <Link
               to="/problems"
               className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-smooth"
             >
               <ArrowLeft className="h-4 w-4" /> <span className="hidden sm:inline">Problems</span>
             </Link>
-            <div className="h-4 w-px bg-border" />
+            <div className="h-4 w-px bg-border hidden sm:block" />
             <h1 className="font-semibold truncate">{problem.title}</h1>
             <LevelBadge level={problem.level} />
+            {progressSnapshot && (
+              <div className="flex w-full basis-full sm:basis-auto sm:w-auto items-center gap-2 sm:ml-1 text-[11px] font-mono">
+                <span
+                  className="rounded-md border border-border/70 bg-card/60 px-2 py-0.5 tabular-nums text-muted-foreground"
+                  title="Accepted solves across published problems"
+                >
+                  {progressSnapshot.solvedCount}/{progressSnapshot.totalPublished} solved
+                </span>
+                {progressSnapshot.thisSolved ? (
+                  <span className="inline-flex items-center gap-1 text-emerald-500 font-medium">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    You solved this
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-red-500/90 font-medium">
+                    <XCircle className="h-3.5 w-3.5" />
+                    Not solved
+                  </span>
+                )}
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <Link

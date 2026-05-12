@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { ClipboardList, Code2, LayoutDashboard, ListChecks, LogOut, Menu, Trophy, User, X } from "lucide-react";
+import { ClipboardList, Code2, LayoutDashboard, ListChecks, LogOut, Menu, Trophy, User, X, BarChart3 } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   clearAuthTokens,
@@ -187,6 +187,10 @@ export function NavBar() {
                         <Link to="/tests/assign" className={link + " inline-flex items-center gap-2 px-4"} onClick={() => setOpen(false)}>
                           <ListChecks className="h-4 w-4 shrink-0 text-neon-magenta" />
                           DSA Test Assign
+                        </Link>
+                        <Link to="/admin/user-progress" className={link + " inline-flex items-center gap-2 px-4"} onClick={() => setOpen(false)}>
+                          <BarChart3 className="h-4 w-4 shrink-0 text-neon-lime" />
+                          User progress
                         </Link>
                         <Link to="/admin/dashboard" className={link + " inline-flex items-center gap-2 px-4"} onClick={() => setOpen(false)}>
                           <LayoutDashboard className="h-4 w-4 shrink-0 text-neon-amber" />

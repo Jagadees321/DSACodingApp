@@ -8,9 +8,35 @@ Not automatically. The codebase includes production-minded defaults (Helmet, COR
 
 Self-hosted Judge0 uses **isolate** and **cgroups** inside privileged containers. That works reliably on **Linux**. **Docker Desktop on macOS** commonly fails with cgroup / sandbox errors; use a **Linux VM or server**, or point the backend at **Judge0 CE on the public cloud** instead of local Judge0.
 
-## Docker Compose: backend + worker + Judge0 (no frontend)
+## Split deployment (Judge0 on another host)
 
-The root `docker-compose.yml` starts **Redis (BullMQ)**, the **backend API**, the **RoyalDSA BullMQ worker**, and the **Judge0** stack (Postgres, Redis, API, Judge0 worker). **Application data uses MongoDB Atlas** — there is no MongoDB service in Compose; you must set `MONGODB_URI` in `.env`. The **web frontend is not part of Compose** — build and host it separately (static hosting, CDN, or your own server).
+Run Judge0 with **`infra/judge0/docker-compose.yml`** on a **Linux** host. On the RoyalDSA host, use the **root `docker-compose.yml`** with **`JUDGE0_BASE_URL`** (and **`JUDGE0_AUTH_TOKEN`** if you set `AUTHN_TOKEN` in `judge0.conf`) pointing at that Judge0 URL.
+
+If you do **not** want embedded Judge0 in the same Compose project, remove or comment out the **`judge0-*`** services (and the **`judge0-postgres-data`** volume), and remove **`judge0-api`** from **`depends_on`** on **`backend`** and **`worker`**, then set **`JUDGE0_BASE_URL`** to the remote URL. See **[infra/README.md](infra/README.md)** for firewall and smoke-test notes.
+
+## Docker Compose: one file, two modes
+
+The root **`docker-compose.yml`** always includes **Redis (BullMQ)**, **backend**, **worker**, and **embedded Judge0** (Postgres, Redis, API, Judge0 worker). **MongoDB is Atlas** — set **`MONGODB_URI`** in `.env`.
+
+### Mode A — API + Judge0 only (frontend outside Docker)
+
+Default — no Compose profile:
+
+```bash
+docker compose up --build -d
+```
+
+Host the SPA yourself (see **Manual frontend deployment** below) or run it with `npm run dev` against the API.
+
+### Mode B — nginx + frontend + API + Judge0 (single origin on port 80)
+
+Enable the **`web`** profile (starts **`nginx`** and **`frontend`** in addition to everything else):
+
+```bash
+docker compose --profile web up --build -d
+```
+
+Set **`CORS_ORIGINS`**, **`FRONTEND_OAUTH_SUCCESS_URL`**, and **`GOOGLE_OAUTH_REDIRECT_URI`** for **`http://localhost`** (or your public host) so OAuth matches nginx on port **80** (e.g. `GOOGLE_OAUTH_REDIRECT_URI=http://localhost/api/v1/auth/oauth/google/callback`). The SPA is built with **`VITE_API_BASE_URL=/api/v1`** by default so the browser hits nginx, which proxies to the API (see **`infra/nginx/app-default.conf`**).
 
 From the repository root:
 
@@ -22,17 +48,24 @@ From the repository root:
 
 2. **MongoDB Atlas:** copy `.env.example` to `.env` and set **`MONGODB_URI`** to your Atlas connection string (typically `mongodb+srv://...`). In the Atlas UI, allow inbound connections from wherever Compose runs (**Network Access** → add your server IP, or `0.0.0.0/0` only if you accept the risk). Optionally set `MONGODB_DB_NAME` if it must differ from the name in the URI / app default (`royaldsa`).
 
-3. **Secrets and URLs:** set `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET` (each ≥ 16 characters). Set `CORS_ORIGINS`, `FRONTEND_OAUTH_SUCCESS_URL`, and OAuth callback URLs to match **where your frontend will be served** (see “Manual frontend deployment” below).
+3. **Secrets and URLs:** set `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET` (each ≥ 16 characters). Set `CORS_ORIGINS`, `FRONTEND_OAUTH_SUCCESS_URL`, and OAuth callback URLs to match **where your frontend will be served** (see “Manual frontend deployment” below). With **`--profile web`**, include **`http://localhost`** (or your site origin) in **`CORS_ORIGINS`**.
 
-4. **Build and start:**
+4. **Build and start** (pick one):
 
    ```bash
+   # API + worker + Redis + Judge0 — frontend hosted separately
    docker compose up --build -d
+   ```
+
+   ```bash
+   # Same stack + nginx + frontend container (browser → port 80)
+   docker compose --profile web up --build -d
    ```
 
 5. **URLs (defaults):**
 
    - Backend API: `http://localhost:3002` (or your published host/port).
+   - With **`--profile web`**: site at `http://localhost` (override **`HTTP_PUBLISH_PORT`** if needed).
    - Judge0 (optional external access / debugging): `http://localhost:2358`
 
 6. **Seed data (optional):**
@@ -47,9 +80,13 @@ From the repository root:
    docker compose logs -f backend worker judge0-api judge0-worker
    ```
 
+   With the **`web`** profile, add **`nginx`** and **`frontend`** to the log command if needed.
+
 ## Manual frontend deployment
 
-The app lives under `style-code-journey` (Vite / TanStack Start). Build it with the **public, browser-visible** API base URL (same origin scheme/host as users will use), then deploy the output to static hosting or your web server.
+If you are **not** using **`docker compose --profile web`**, the app still lives under **`style-code-journey`**. Build it with the **public, browser-visible** API base URL (same origin scheme/host as users will use), then deploy the output to static hosting or your web server.
+
+If you **are** using **`--profile web`**, the frontend image is built by Compose; you can still override **`VITE_API_BASE_URL`** at build time via Compose build args / `.env` if required.
 
 1. Set build-time env (examples):
    - `VITE_USE_API=true`
@@ -94,6 +131,10 @@ Docker Compose substitutes `${VAR:-default}` from your shell or a `.env` file ne
 | `JUDGE0_POSTGRES_IMAGE` | `postgres:16.2-alpine` | Judge0 Postgres image |
 | **Other images** | | |
 | `REDIS_APP_IMAGE` | `redis:7-alpine` | BullMQ Redis image |
+| **With `--profile web`** | | |
+| `HTTP_PUBLISH_PORT` | `80` | Host → nginx → frontend + `/api` |
+| `NGINX_IMAGE` | `nginx:1.27-alpine` | Reverse proxy image |
+| `VITE_API_BASE_URL` | `/api/v1` | Browser API path (relative to nginx) |
 
 If you change `BACKEND_PUBLISH_PORT` or `BACKEND_PORT`, update `GOOGLE_OAUTH_REDIRECT_URI` (and any hardcoded localhost URLs) accordingly.
 
@@ -136,5 +177,7 @@ The Judge0 image is **amd64**. On M1/M2/M3 Macs, Docker uses **emulation**; you 
 | `backend` | REST API |
 | `worker` | `judge.worker.js` — pulls jobs and calls Judge0 |
 | `judge0-redis`, `judge0-db`, `judge0-api`, `judge0-worker` | Judge0 CE stack |
+| `frontend` | TanStack app (**`--profile web`** only) |
+| `nginx` | Edge proxy for `/`, `/api/`, `/health` (**`--profile web`** only) |
 
 RoyalDSA’s worker is separate from Judge0’s worker: **both** are started by this Compose file.

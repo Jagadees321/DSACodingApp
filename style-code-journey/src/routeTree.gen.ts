@@ -20,6 +20,7 @@ import { Route as TestsAssignedRouteImport } from './routes/tests.assigned'
 import { Route as TestsAssignRouteImport } from './routes/tests.assign'
 import { Route as ProblemsIdRouteImport } from './routes/problems.$id'
 import { Route as OauthCallbackRouteImport } from './routes/oauth.callback'
+import { Route as AdminUserProgressRouteImport } from './routes/admin.user-progress'
 import { Route as AdminProblemsRouteImport } from './routes/admin.problems'
 import { Route as AdminFundamentalsRouteImport } from './routes/admin.fundamentals'
 import { Route as AdminDashboardRouteImport } from './routes/admin.dashboard'
@@ -79,6 +80,11 @@ const OauthCallbackRoute = OauthCallbackRouteImport.update({
   path: '/oauth/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminUserProgressRoute = AdminUserProgressRouteImport.update({
+  id: '/admin/user-progress',
+  path: '/admin/user-progress',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminProblemsRoute = AdminProblemsRouteImport.update({
   id: '/admin/problems',
   path: '/admin/problems',
@@ -104,6 +110,7 @@ export interface FileRoutesByFullPath {
   '/admin/dashboard': typeof AdminDashboardRoute
   '/admin/fundamentals': typeof AdminFundamentalsRoute
   '/admin/problems': typeof AdminProblemsRoute
+  '/admin/user-progress': typeof AdminUserProgressRoute
   '/oauth/callback': typeof OauthCallbackRoute
   '/problems/$id': typeof ProblemsIdRoute
   '/tests/assign': typeof TestsAssignRoute
@@ -120,6 +127,7 @@ export interface FileRoutesByTo {
   '/admin/dashboard': typeof AdminDashboardRoute
   '/admin/fundamentals': typeof AdminFundamentalsRoute
   '/admin/problems': typeof AdminProblemsRoute
+  '/admin/user-progress': typeof AdminUserProgressRoute
   '/oauth/callback': typeof OauthCallbackRoute
   '/problems/$id': typeof ProblemsIdRoute
   '/tests/assign': typeof TestsAssignRoute
@@ -137,6 +145,7 @@ export interface FileRoutesById {
   '/admin/dashboard': typeof AdminDashboardRoute
   '/admin/fundamentals': typeof AdminFundamentalsRoute
   '/admin/problems': typeof AdminProblemsRoute
+  '/admin/user-progress': typeof AdminUserProgressRoute
   '/oauth/callback': typeof OauthCallbackRoute
   '/problems/$id': typeof ProblemsIdRoute
   '/tests/assign': typeof TestsAssignRoute
@@ -155,6 +164,7 @@ export interface FileRouteTypes {
     | '/admin/dashboard'
     | '/admin/fundamentals'
     | '/admin/problems'
+    | '/admin/user-progress'
     | '/oauth/callback'
     | '/problems/$id'
     | '/tests/assign'
@@ -171,6 +181,7 @@ export interface FileRouteTypes {
     | '/admin/dashboard'
     | '/admin/fundamentals'
     | '/admin/problems'
+    | '/admin/user-progress'
     | '/oauth/callback'
     | '/problems/$id'
     | '/tests/assign'
@@ -187,6 +198,7 @@ export interface FileRouteTypes {
     | '/admin/dashboard'
     | '/admin/fundamentals'
     | '/admin/problems'
+    | '/admin/user-progress'
     | '/oauth/callback'
     | '/problems/$id'
     | '/tests/assign'
@@ -204,6 +216,7 @@ export interface RootRouteChildren {
   AdminDashboardRoute: typeof AdminDashboardRoute
   AdminFundamentalsRoute: typeof AdminFundamentalsRoute
   AdminProblemsRoute: typeof AdminProblemsRoute
+  AdminUserProgressRoute: typeof AdminUserProgressRoute
   OauthCallbackRoute: typeof OauthCallbackRoute
   ProblemsIdRoute: typeof ProblemsIdRoute
   TestsAssignRoute: typeof TestsAssignRoute
@@ -291,6 +304,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OauthCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/user-progress': {
+      id: '/admin/user-progress'
+      path: '/admin/user-progress'
+      fullPath: '/admin/user-progress'
+      preLoaderRoute: typeof AdminUserProgressRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/problems': {
       id: '/admin/problems'
       path: '/admin/problems'
@@ -324,6 +344,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminDashboardRoute: AdminDashboardRoute,
   AdminFundamentalsRoute: AdminFundamentalsRoute,
   AdminProblemsRoute: AdminProblemsRoute,
+  AdminUserProgressRoute: AdminUserProgressRoute,
   OauthCallbackRoute: OauthCallbackRoute,
   ProblemsIdRoute: ProblemsIdRoute,
   TestsAssignRoute: TestsAssignRoute,

@@ -1,6 +1,8 @@
+import { Types } from "mongoose";
 import { Router } from "express";
 import { z } from "zod";
-import { requireAuth } from "../../middleware/auth.js";
+import { requireAdmin, requireAuth } from "../../middleware/auth.js";
+import { ProblemModel } from "../../models/problem.model.js";
 import { SubmissionModel } from "../../models/submission.model.js";
 import { UserModel } from "../../models/user.model.js";
 import { UserProgressModel } from "../../models/user-progress.model.js";
@@ -8,20 +10,69 @@ import { UserProgressModel } from "../../models/user-progress.model.js";
 export const progressRouter = Router();
 
 progressRouter.get("/me", requireAuth, async (req, res) => {
-  const [user, progress] = await Promise.all([
-    UserModel.findById(req.user!.userId).select("currentLevel totalXp streakDays").lean(),
-    UserProgressModel.find({ userId: req.user!.userId }).lean(),
+  const userId = req.user!.userId;
+  const [user, progress, totalPublishedProblems, publishedProblems] = await Promise.all([
+    UserModel.findById(userId).select("currentLevel totalXp streakDays").lean(),
+    UserProgressModel.find({ userId }).lean(),
+    ProblemModel.countDocuments({ isPublished: true }),
+    ProblemModel.find({ isPublished: true }).select("_id slug").lean(),
   ]);
 
-  const solved = progress.filter((p) => p.status === "solved").length;
-  const attempted = progress.filter((p) => p.status !== "not_started").length;
+  const publishedIdSet = new Set(publishedProblems.map((p) => String(p._id)));
+  const idToSlug = new Map(publishedProblems.map((p) => [String(p._id), p.slug]));
+  const solvedSlugs = progress
+    .filter((p) => p.status === "solved" && publishedIdSet.has(String(p.problemId)))
+    .map((p) => idToSlug.get(String(p.problemId)))
+    .filter((s): s is string => Boolean(s));
+
+  /** One count per published problem only (matches UI dots and admin table). */
+  const solved = progress.filter(
+    (p) => p.status === "solved" && publishedIdSet.has(String(p.problemId)),
+  ).length;
+  const attempted = progress.filter(
+    (p) => p.status !== "not_started" && publishedIdSet.has(String(p.problemId)),
+  ).length;
 
   res.json({
     ok: true,
     data: {
       user,
-      summary: { solved, attempted, totalTracked: progress.length },
+      summary: {
+        solved,
+        attempted,
+        totalTracked: progress.length,
+        totalPublishedProblems,
+      },
+      solvedSlugs,
       items: progress,
+    },
+  });
+});
+
+/** Per-user solved counts vs total published problems (admin). */
+progressRouter.get("/admin/users-solved-summary", requireAuth, requireAdmin, async (_req, res) => {
+  const totalPublishedProblems = await ProblemModel.countDocuments({ isPublished: true });
+  const publishedProblemIds = await ProblemModel.distinct("_id", { isPublished: true });
+
+  const solvedRows = await UserProgressModel.aggregate<{ _id: Types.ObjectId; solvedCount: number }>([
+    { $match: { status: "solved", problemId: { $in: publishedProblemIds } } },
+    { $group: { _id: "$userId", solvedCount: { $sum: 1 } } },
+  ]);
+  const solvedMap = new Map(solvedRows.map((r) => [String(r._id), r.solvedCount]));
+
+  const users = await UserModel.find().select("username email role").sort({ username: 1 }).lean();
+
+  res.json({
+    ok: true,
+    data: {
+      totalPublishedProblems,
+      users: users.map((u) => ({
+        userId: String(u._id),
+        username: u.username,
+        email: u.email,
+        role: u.role,
+        solvedCount: solvedMap.get(String(u._id)) ?? 0,
+      })),
     },
   });
 });
@@ -41,7 +92,11 @@ progressRouter.get("/leaderboard", requireAuth, async (req, res) => {
         ? new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
         : null;
 
-  const match: Record<string, unknown> = { status: "accepted" };
+  const publishedProblemIds = await ProblemModel.distinct("_id", { isPublished: true });
+  const match: Record<string, unknown> = {
+    status: "accepted",
+    problemId: { $in: publishedProblemIds },
+  };
   if (since) match.submittedAt = { $gte: since };
 
   const rows = await SubmissionModel.aggregate<{

@@ -2,7 +2,7 @@
 # Edit judge0.conf — set POSTGRES_PASSWORD, REDIS_PASSWORD (and optional AUTHN_TOKEN).
 # Then: docker compose up -d
 #
-# Point RoyalDSA backend at: JUDGE0_BASE_URL=http://localhost:2358
+# Remote RoyalDSA backend: set JUDGE0_BASE_URL on the app server to this host’s URL, e.g. https://judge.example.com
 # If AUTHN_TOKEN is set in judge0.conf, set JUDGE0_AUTH_TOKEN in backend .env to match.
 
 x-logging: &default-logging
@@ -45,6 +45,7 @@ services:
       - judge0
 
   server:
+    platform: linux/amd64
     image: judge0/judge0:latest
     container_name: judge0-api
     volumes:
@@ -65,6 +66,7 @@ services:
       - judge0
 
   worker:
+    platform: linux/amd64
     image: judge0/judge0:latest
     container_name: judge0-worker
     command: ["./scripts/workers"]

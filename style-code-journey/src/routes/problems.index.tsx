@@ -12,6 +12,11 @@ const searchSchema = z.object({
   level: z.coerce.number().int().min(1).max(5).optional(),
 });
 
+type ProgressMe = {
+  summary: { solved: number; totalPublishedProblems: number };
+  solvedSlugs: string[];
+};
+
 export const Route = createFileRoute("/problems/")({
   validateSearch: searchSchema,
   beforeLoad: () => requireAuthBeforeLoad(),
@@ -24,9 +29,15 @@ export const Route = createFileRoute("/problems/")({
           level: p.level,
           topic: p.topic,
         })),
+        solvedSlugs: [] as string[],
+        totalPublishedProblems: problems.length,
+        solvedCount: 0,
       };
     }
-    const data = await apiGet<{ items: any[] }>("/problems");
+    const [data, progress] = await Promise.all([
+      apiGet<{ items: any[]; total: number }>("/problems?limit=100&page=1"),
+      apiGet<ProgressMe>("/progress/me").catch(() => null),
+    ]);
     return {
       problems: data.items.map((p) => ({
         id: p.slug,
@@ -34,6 +45,9 @@ export const Route = createFileRoute("/problems/")({
         level: p.level,
         topic: p.category,
       })),
+      solvedSlugs: progress?.solvedSlugs ?? [],
+      totalPublishedProblems: progress?.summary.totalPublishedProblems ?? data.total,
+      solvedCount: progress?.summary.solved ?? 0,
     };
   },
   head: () => ({
@@ -56,6 +70,7 @@ function ProblemsPage() {
   const [topic, setTopic] = useState<string>("All");
   const [q, setQ] = useState("");
   const allProblems = loaderData.problems;
+  const solvedSet = useMemo(() => new Set(loaderData.solvedSlugs ?? []), [loaderData.solvedSlugs]);
 
   const topics = useMemo(() => ["All", ...Array.from(new Set(allProblems.map((p) => p.topic)))], [allProblems]);
 
@@ -80,6 +95,15 @@ function ProblemsPage() {
             <h1 className="mt-1 text-3xl md:text-4xl font-extrabold tracking-tight">
               <span className="text-gradient-primary">70</span> handpicked challenges
             </h1>
+            {useApi && (
+              <p className="mt-2 text-sm font-mono text-muted-foreground tabular-nums">
+                Your progress:{" "}
+                <span className="text-neon-lime font-semibold">{loaderData.solvedCount ?? 0}</span>
+                <span className="text-muted-foreground"> / </span>
+                <span>{loaderData.totalPublishedProblems ?? allProblems.length}</span>
+                <span className="text-muted-foreground"> solved</span>
+              </p>
+            )}
           </div>
           <div className="relative w-full md:w-72">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -145,7 +169,14 @@ function ProblemsPage() {
 
         {/* List */}
         <div className="rounded-xl border border-border/60 bg-card/30 backdrop-blur overflow-hidden">
-          <div className="hidden md:grid grid-cols-[60px_1fr_140px_120px_60px] gap-4 px-5 py-3 text-[10px] uppercase tracking-widest text-muted-foreground font-mono border-b border-border/60">
+          <div
+            className={`hidden md:grid gap-4 px-5 py-3 text-[10px] uppercase tracking-widest text-muted-foreground font-mono border-b border-border/60 ${
+              useApi ? "grid-cols-[20px_60px_1fr_140px_120px_60px]" : "grid-cols-[60px_1fr_140px_120px_60px]"
+            }`}
+          >
+            {useApi ? (
+              <div title="Green = solved, red = not solved">●</div>
+            ) : null}
             <div>#</div>
             <div>Title</div>
             <div>Topic</div>
@@ -157,20 +188,32 @@ function ProblemsPage() {
               No problems match your filters.
             </div>
           )}
-          {filtered.map((p, i) => (
+          {filtered.map((p, i) => {
+            const isSolved = useApi && solvedSet.has(p.id);
+            return (
             <Link
               key={p.id}
               to="/problems/$id"
               params={{ id: p.id }}
-              className="grid grid-cols-[1fr_auto] md:grid-cols-[60px_1fr_140px_120px_60px] items-center gap-4 px-5 py-3.5 border-b border-border/40 last:border-b-0 hover:bg-muted/40 transition-smooth group"
+              className={`grid items-center gap-3 md:gap-4 px-5 py-3.5 border-b border-border/40 last:border-b-0 hover:bg-muted/40 transition-smooth group ${
+                useApi
+                  ? "grid-cols-[20px_1fr] md:grid-cols-[20px_60px_1fr_140px_120px_60px]"
+                  : "grid-cols-1 md:grid-cols-[60px_1fr_140px_120px_60px]"
+              }`}
             >
+              {useApi ? (
+                <div className="flex items-center justify-center" title={isSolved ? "Solved" : "Not solved"}>
+                  <span
+                    className={`h-2.5 w-2.5 shrink-0 rounded-full ${isSolved ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" : "bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.45)]"}`}
+                    aria-hidden
+                  />
+                </div>
+              ) : null}
               <div className="hidden md:block font-mono text-xs text-muted-foreground">
                 {String(i + 1).padStart(2, "0")}
               </div>
               <div>
-                <div className="font-medium group-hover:text-neon-cyan transition-smooth">
-                  {p.title}
-                </div>
+                <div className="font-medium group-hover:text-neon-cyan transition-smooth">{p.title}</div>
                 <div className="md:hidden mt-1 flex items-center gap-2">
                   <LevelBadge level={p.level} />
                   <span className="text-[10px] font-mono text-muted-foreground">{p.topic}</span>
@@ -186,7 +229,8 @@ function ProblemsPage() {
                 →
               </div>
             </Link>
-          ))}
+          );
+          })}
         </div>
       </main>
     </div>

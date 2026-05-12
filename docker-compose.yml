@@ -1,7 +1,14 @@
-# RoyalDSA server stack: Redis (BullMQ), API + BullMQ worker, Judge0 (API + worker).
-# App data lives in MongoDB Atlas — set MONGODB_URI in `.env` (no MongoDB container).
-# Frontend is not included — deploy the web app separately (see DEPLOY.md).
-# Judge0 requires Linux + privileged isolate (not Docker Desktop Mac). See DEPLOY.md.
+# RoyalDSA — one Compose file, two ways to run:
+#
+# 1) API + worker + Redis + embedded Judge0 (no UI in Docker — host the SPA yourself or use profile web)
+#    docker compose up --build -d
+#
+# 2) Same stack + nginx + frontend (single host: browser hits port 80, nginx proxies /api and /health to the API)
+#    docker compose --profile web up --build -d
+#
+# MongoDB: Atlas only — set MONGODB_URI in `.env` (no MongoDB container).
+# Judge0 needs Linux + privileged isolate (see DEPLOY.md). Remote Judge0: run infra/judge0 elsewhere and
+# point JUDGE0_BASE_URL at it; remove or stop the judge0-* services here if you do not run embedded Judge0.
 
 name: royaldsa
 
@@ -22,7 +29,7 @@ x-backend-env: &backend-env
   JUDGE0_BASE_URL: ${JUDGE0_BASE_URL:-http://judge0-api:2358}
   JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-me-access-secret-min-16-chars}
   JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-refresh-secret-min16}
-  CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+  CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080,http://localhost,http://127.0.0.1}
   FRONTEND_OAUTH_SUCCESS_URL: ${FRONTEND_OAUTH_SUCCESS_URL:-http://localhost:8080/oauth/callback}
   GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
   GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
@@ -76,7 +83,6 @@ services:
     <<: *default-logging
 
   judge0-api:
-    # Official image is amd64; on Apple Silicon Docker runs it via emulation (warning is normal).
     platform: linux/amd64
     image: ${JUDGE0_IMAGE:-judge0/judge0:latest}
     container_name: royaldsa-judge0-api
@@ -131,7 +137,6 @@ services:
     environment:
       <<: *backend-env
     ports:
-      # Published host port defaults to BACKEND_PORT; override BACKEND_PUBLISH_PORT only when host≠container port.
       - "${BACKEND_PUBLISH_PORT:-${BACKEND_PORT:-3002}}:${BACKEND_PORT:-3002}"
     depends_on:
       redis-app:
@@ -155,6 +160,40 @@ services:
       redis-app:
         condition: service_started
       judge0-api:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - royaldsa
+    <<: *default-logging
+
+  frontend:
+    profiles: ["web"]
+    build:
+      context: ./style-code-journey
+      dockerfile: Dockerfile
+      args:
+        VITE_USE_API: "true"
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
+    container_name: royaldsa-frontend
+    expose:
+      - "8080"
+    restart: unless-stopped
+    networks:
+      - royaldsa
+    <<: *default-logging
+
+  nginx:
+    profiles: ["web"]
+    image: ${NGINX_IMAGE:-nginx:1.27-alpine}
+    container_name: royaldsa-nginx
+    ports:
+      - "${HTTP_PUBLISH_PORT:-80}:80"
+    volumes:
+      - ./infra/nginx/app-default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      backend:
+        condition: service_started
+      frontend:
         condition: service_started
     restart: unless-stopped
     networks:

@@ -78,7 +78,7 @@ assignedTestsRouter.get("/assigned/me", requireAuth, async (req, res) => {
     status: { $in: ["scheduled", "active"] },
     $or: [{ targetUsers: new Types.ObjectId(userId) }, { targetGroups: { $in: groupIds } }],
   })
-    .sort({ dueAt: 1 })
+    .sort({ createdAt: -1 })
     .lean();
 
   const testIds = [...new Set(assignments.map((a) => String(a.testId)))].map((id) => new Types.ObjectId(id));

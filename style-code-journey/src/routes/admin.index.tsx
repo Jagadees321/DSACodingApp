@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ReactNode } from "react";
 import { NavBar } from "@/components/NavBar";
-import { BookOpen, Database, FileCode2, Layers3 } from "lucide-react";
+import { BookOpen, Database, FileCode2, Layers3, BarChart3 } from "lucide-react";
 import { requireAdminBeforeLoad } from "@/lib/auth-guard";
 
 export const Route = createFileRoute("/admin/")({
@@ -23,6 +23,12 @@ function AdminPanelPage() {
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <AdminCard
+            to="/admin/user-progress"
+            icon={<BarChart3 className="h-5 w-5 text-neon-lime" />}
+            title="User problem progress"
+            description="See every account’s solved count vs total published problems."
+          />
           <AdminCard
             to="/admin/problems"
             icon={<FileCode2 className="h-5 w-5 text-neon-cyan" />}
@@ -63,7 +69,7 @@ function AdminCard({
   title,
   description,
 }: {
-  to: "/admin/problems" | "/admin/fundamentals";
+  to: "/admin/problems" | "/admin/fundamentals" | "/admin/user-progress";
   icon: ReactNode;
   title: string;
   description: string;
