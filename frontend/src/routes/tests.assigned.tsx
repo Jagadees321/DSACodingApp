@@ -107,7 +107,14 @@ function assignmentTakeState(a: AssignmentItem): "not_taken" | "in_progress" | "
   return "finished";
 }
 
-function assignmentCardClass(a: AssignmentItem) {
+/** Not started yet, still open to take, and assignment due has not passed (can still begin). */
+function assignmentShouldPromoteTop(a: AssignmentItem, nowMs: number): boolean {
+  if (!a.isAvailable || !a.test) return false;
+  if (assignmentTakeState(a) !== "not_taken") return false;
+  return new Date(a.dueAt).getTime() > nowMs;
+}
+
+function assignmentCardClass(a: AssignmentItem, promoteTop: boolean) {
   const t = assignmentTakeState(a);
   const base =
     "rounded-xl border p-4 text-left transition-smooth w-full ";
@@ -115,12 +122,38 @@ function assignmentCardClass(a: AssignmentItem) {
     return base + "border-border/50 bg-muted/20 opacity-75";
   }
   if (t === "not_taken") {
-    return base + "border-amber-500/45 bg-amber-500/[0.07] hover:bg-amber-500/15";
+    const ring =
+      promoteTop && a.isAvailable
+        ? " ring-2 ring-amber-400/80 shadow-lg shadow-amber-500/15 "
+        : " ";
+    return base + "border-amber-500/45 bg-amber-500/[0.07] hover:bg-amber-500/15" + ring;
   }
   if (t === "in_progress") {
     return base + "border-neon-cyan/50 bg-neon-cyan/[0.08] hover:bg-neon-cyan/15";
   }
   return base + "border-emerald-600/35 bg-emerald-600/[0.06] hover:bg-emerald-600/12";
+}
+
+/** Sort: not attempted + due not passed first; then in progress; then other not-started; finished; upcoming; closed. */
+function sortAssignmentsForDisplay(assignments: AssignmentItem[], nowMs: number): AssignmentItem[] {
+  const rank = (a: AssignmentItem) => {
+    if (assignmentShouldPromoteTop(a, nowMs)) return 0;
+    const take = assignmentTakeState(a);
+    if (take === "in_progress") return 1;
+    if (take === "not_taken") return 2;
+    if (take === "finished") return 3;
+    if (take === "upcoming") return 4;
+    return 5;
+  };
+  return [...assignments].sort((a, b) => {
+    const ra = rank(a);
+    const rb = rank(b);
+    if (ra !== rb) return ra - rb;
+    if (ra === 0 || ra === 2) return new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime();
+    const tb = new Date(b.createdAt ?? b.startAt ?? 0).getTime();
+    const ta = new Date(a.createdAt ?? a.startAt ?? 0).getTime();
+    return tb - ta;
+  });
 }
 
 type ProblemEdit = {
@@ -166,12 +199,8 @@ function TakeAssignedTestPage() {
   const displayRun = running ? null : latestRun;
   const displaySampleSummary = sampleCaseSummary(displayRun);
   const sortedAssignments = useMemo(() => {
-    return [...assignments].sort((a, b) => {
-      const ta = new Date(a.createdAt ?? a.startAt ?? 0).getTime();
-      const tb = new Date(b.createdAt ?? b.startAt ?? 0).getTime();
-      return tb - ta;
-    });
-  }, [assignments]);
+    return sortAssignmentsForDisplay(assignments, Date.now());
+  }, [assignments, timerTick]);
   const activeConsole = consoleByProblem[activeProblemId] ?? [];
 
   const loadAssignments = useCallback(async (opts?: { silent?: boolean }) => {
@@ -201,6 +230,14 @@ function TakeAssignedTestPage() {
     const id = window.setInterval(() => setTimerTick((n) => n + 1), 1000);
     return () => window.clearInterval(id);
   }, [sessionData?.session._id, sessionData?.session.status]);
+
+  /** While browsing the assignment list, re-sort periodically so due dates move items down when time passes. */
+  useEffect(() => {
+    if (sessionData) return;
+    if (assignments.length === 0) return;
+    const id = window.setInterval(() => setTimerTick((n) => n + 1), 30_000);
+    return () => window.clearInterval(id);
+  }, [sessionData, assignments.length]);
 
   useEffect(() => {
     if (!sessionData || sessionData.session.status !== "auto_submitted") return;
@@ -466,7 +503,9 @@ function TakeAssignedTestPage() {
               <span className="text-xs font-mono uppercase tracking-widest">Learner Zone</span>
             </div>
             <h1 className="mt-2 text-3xl font-extrabold">Take Assigned Test</h1>
-            <p className="mt-2 text-muted-foreground">Assigned coding tests for users are listed here.</p>
+            <p className="mt-2 text-muted-foreground">
+              Assignments you have not started and can still open (before the due date) are sorted to the top.
+            </p>
             <div className="mt-5 grid gap-3">
               {loading && (
                 <div className="rounded-lg border border-border bg-card/30 px-4 py-3 text-sm text-muted-foreground">
@@ -480,6 +519,8 @@ function TakeAssignedTestPage() {
               )}
               {sortedAssignments.map((a) => {
                 const take = assignmentTakeState(a);
+                const nowMs = Date.now();
+                const promoteTop = assignmentShouldPromoteTop(a, nowMs);
                 const label =
                   take === "not_taken"
                     ? "Not started"
@@ -495,16 +536,23 @@ function TakeAssignedTestPage() {
                   key={a._id}
                   onClick={() => void openAssignment(a._id)}
                   disabled={!a.isAvailable || !a.test}
-                  className={`${assignmentCardClass(a)}${!a.isAvailable || !a.test ? " opacity-60 cursor-not-allowed" : ""}`}
+                  className={`${assignmentCardClass(a, promoteTop)}${!a.isAvailable || !a.test ? " opacity-60 cursor-not-allowed" : ""}`}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <div className="font-semibold">{a.test?.title ?? "Untitled test"}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="font-semibold truncate">{a.test?.title ?? "Untitled test"}</div>
+                        {promoteTop && (
+                          <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide rounded-full bg-amber-500/25 text-amber-200 border border-amber-400/50 px-2 py-0.5">
+                            Start here
+                          </span>
+                        )}
+                      </div>
                       <div className="text-xs text-muted-foreground">
                         Due: {new Date(a.dueAt).toLocaleString()} · {label}
                       </div>
                     </div>
-                    <span className="text-xs font-mono px-2 py-1 rounded bg-background/50 border border-border/60">
+                    <span className="text-xs font-mono px-2 py-1 rounded bg-background/50 border border-border/60 shrink-0">
                       {a.latestSession?.aggregate?.problemsCompleted ?? 0} solved
                     </span>
                   </div>

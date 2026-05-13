@@ -84,7 +84,7 @@ From the repository root:
 
 ## Manual frontend deployment
 
-If you are **not** using **`docker compose --profile web`**, the app still lives under **`style-code-journey`**. Build it with the **public, browser-visible** API base URL (same origin scheme/host as users will use), then deploy the output to static hosting or your web server.
+If you are **not** using **`docker compose --profile web`**, the app still lives under **`frontend`**. Build it with the **public, browser-visible** API base URL (same origin scheme/host as users will use), then deploy the output to static hosting or your web server.
 
 If you **are** using **`--profile web`**, the frontend image is built by Compose; you can still override **`VITE_API_BASE_URL`** at build time via Compose build args / `.env` if required.
 
@@ -95,12 +95,12 @@ If you **are** using **`--profile web`**, the frontend image is built by Compose
 2. Build (from repo root):
 
    ```bash
-   cd style-code-journey
+   cd frontend
    npm ci
    VITE_USE_API=true VITE_API_BASE_URL=https://api.example.com/api/v1 npm run build
    ```
 
-3. Serve the production assets from `style-code-journey`’s build output (exact folder depends on the framework’s build config — often `dist/` or `.output/`).
+3. Serve the production assets from `frontend`’s build output (exact folder depends on the framework’s build config — often `dist/` or `.output/`).
 
 4. **Backend alignment:** in the server `.env` used by Compose (or your orchestrator), set:
    - `CORS_ORIGINS` to your frontend origin(s), e.g. `https://app.example.com`

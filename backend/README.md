@@ -18,7 +18,7 @@ Production-oriented Express + MongoDB backend for the DSA platform.
 5. `npm run worker` (judge worker)
 
 ## Frontend integration
-In `style-code-journey`, set:
+In `frontend`, set:
 - `VITE_USE_API=true`
 - `VITE_API_BASE_URL=http://localhost:8080/api/v1`
 - `VITE_API_TOKEN=<access-token>`

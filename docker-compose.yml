@@ -169,7 +169,7 @@ services:
   frontend:
     profiles: ["web"]
     build:
-      context: ./style-code-journey
+      context: ./frontend
       dockerfile: Dockerfile
       args:
         VITE_USE_API: "true"

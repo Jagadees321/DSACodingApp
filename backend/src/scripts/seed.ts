@@ -15,10 +15,10 @@ async function seed() {
   await connectMongo();
 
   const problemsModule = await import(
-    path.resolve(repoRoot, "style-code-journey/src/data/problems.ts")
+    path.resolve(repoRoot, "frontend/src/data/problems.ts")
   );
   const fundamentalsModule = await import(
-    path.resolve(repoRoot, "style-code-journey/src/data/fundamentals.ts")
+    path.resolve(repoRoot, "frontend/src/data/fundamentals.ts")
   );
 
   const problems = problemsModule.problems as Array<any>;
