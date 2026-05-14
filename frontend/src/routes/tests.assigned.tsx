@@ -107,31 +107,40 @@ function assignmentTakeState(a: AssignmentItem): "not_taken" | "in_progress" | "
   return "finished";
 }
 
-/** Not started yet, still open to take, and assignment due has not passed (can still begin). */
+/** Not attempted yet, still open to take, and assignment due has not passed (can still begin). */
 function assignmentShouldPromoteTop(a: AssignmentItem, nowMs: number): boolean {
   if (!a.isAvailable || !a.test) return false;
   if (assignmentTakeState(a) !== "not_taken") return false;
   return new Date(a.dueAt).getTime() > nowMs;
 }
 
-function assignmentCardClass(a: AssignmentItem, promoteTop: boolean) {
-  const t = assignmentTakeState(a);
+/** Neutral card shell; optional ring when this assignment is promoted to start next. */
+function assignmentCardShellClass(a: AssignmentItem, promoteTop: boolean): string {
   const base =
-    "rounded-xl border p-4 text-left transition-smooth w-full ";
-  if (t === "upcoming" || t === "closed") {
-    return base + "border-border/50 bg-muted/20 opacity-75";
+    "w-full rounded-lg border border-sky-400/50 bg-card text-left shadow-sm transition-all dark:border-sky-500/45 " +
+    "hover:border-sky-500 hover:shadow-md hover:bg-card dark:hover:border-sky-400 " +
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 focus-visible:ring-offset-background ";
+  const emphasis =
+    promoteTop && a.isAvailable
+      ? "ring-1 ring-sky-400/45 ring-offset-1 ring-offset-background dark:ring-sky-500/40 "
+      : "";
+  return base + emphasis + "text-foreground ";
+}
+
+/** Outline status chips — readable in light and dark mode without heavy fills. */
+function statusPillClass(t: ReturnType<typeof assignmentTakeState>): string {
+  switch (t) {
+    case "not_taken":
+      return "border border-amber-500/40 bg-amber-500/[0.08] text-amber-950 dark:border-amber-400/35 dark:bg-amber-950/25 dark:text-amber-50";
+    case "in_progress":
+      return "border border-cyan-500/40 bg-cyan-500/[0.08] text-cyan-950 dark:border-cyan-400/35 dark:bg-cyan-950/25 dark:text-cyan-50";
+    case "finished":
+      return "border border-emerald-600/40 bg-emerald-600/[0.08] text-emerald-950 dark:border-emerald-500/35 dark:bg-emerald-950/30 dark:text-emerald-50";
+    case "upcoming":
+      return "border border-violet-500/40 bg-violet-500/[0.08] text-violet-950 dark:border-violet-400/35 dark:bg-violet-950/25 dark:text-violet-50";
+    default:
+      return "border border-zinc-400/50 bg-muted text-foreground dark:border-zinc-500/40";
   }
-  if (t === "not_taken") {
-    const ring =
-      promoteTop && a.isAvailable
-        ? " ring-2 ring-amber-400/80 shadow-lg shadow-amber-500/15 "
-        : " ";
-    return base + "border-amber-500/45 bg-amber-500/[0.07] hover:bg-amber-500/15" + ring;
-  }
-  if (t === "in_progress") {
-    return base + "border-neon-cyan/50 bg-neon-cyan/[0.08] hover:bg-neon-cyan/15";
-  }
-  return base + "border-emerald-600/35 bg-emerald-600/[0.06] hover:bg-emerald-600/12";
 }
 
 /** Sort: not attempted + due not passed first; then in progress; then other not-started; finished; upcoming; closed. */
@@ -504,16 +513,16 @@ function TakeAssignedTestPage() {
             </div>
             <h1 className="mt-2 text-3xl font-extrabold">Take Assigned Test</h1>
             <p className="mt-2 text-muted-foreground">
-              Assignments you have not started and can still open (before the due date) are sorted to the top.
+              Assignments you have not attempted and can still open (before the due date) are sorted to the top.
             </p>
-            <div className="mt-5 grid gap-3">
+            <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {loading && (
-                <div className="rounded-lg border border-border bg-card/30 px-4 py-3 text-sm text-muted-foreground">
+                <div className="col-span-full rounded-xl border border-sky-300/50 bg-muted/40 px-4 py-3 text-sm text-foreground/80 dark:border-sky-700/40">
                   Loading assigned tests...
                 </div>
               )}
               {!loading && assignments.length === 0 && (
-                <div className="rounded-lg border border-border bg-card/30 px-4 py-3 text-sm text-muted-foreground">
+                <div className="col-span-full rounded-xl border border-sky-300/50 bg-muted/40 px-4 py-3 text-sm text-foreground/80 dark:border-sky-700/40">
                   No assigned tests right now.
                 </div>
               )}
@@ -523,7 +532,7 @@ function TakeAssignedTestPage() {
                 const promoteTop = assignmentShouldPromoteTop(a, nowMs);
                 const label =
                   take === "not_taken"
-                    ? "Not started"
+                    ? "Not attempted"
                     : take === "in_progress"
                       ? "In progress"
                       : take === "finished"
@@ -534,27 +543,46 @@ function TakeAssignedTestPage() {
                 return (
                 <button
                   key={a._id}
+                  type="button"
                   onClick={() => void openAssignment(a._id)}
                   disabled={!a.isAvailable || !a.test}
-                  className={`${assignmentCardClass(a, promoteTop)}${!a.isAvailable || !a.test ? " opacity-60 cursor-not-allowed" : ""}`}
+                  className={`flex h-full min-h-[7.5rem] flex-col p-3.5 ${assignmentCardShellClass(a, promoteTop)}${!a.isAvailable || !a.test ? " cursor-not-allowed opacity-55 saturate-50" : ""}`}
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <div className="font-semibold truncate">{a.test?.title ?? "Untitled test"}</div>
-                        {promoteTop && (
-                          <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide rounded-full bg-amber-500/25 text-amber-200 border border-amber-400/50 px-2 py-0.5">
-                            Start here
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        Due: {new Date(a.dueAt).toLocaleString()} · {label}
+                  <div className="flex min-h-0 flex-1 flex-col gap-2.5 text-left">
+                    <div className="flex items-start justify-between gap-3 border-b border-sky-200/70 pb-2.5 dark:border-sky-800/45">
+                      <h3 className="min-w-0 flex-1 text-left text-sm font-semibold leading-snug tracking-tight text-foreground line-clamp-2">
+                        {a.test?.title ?? "Untitled test"}
+                      </h3>
+                      <span
+                        className={`shrink-0 whitespace-nowrap rounded-md px-2 py-1 text-xs font-medium ${statusPillClass(take)}`}
+                      >
+                        {label}
+                      </span>
+                    </div>
+                    {promoteTop && (
+                      <p className="text-[11px] font-medium leading-none text-amber-800 dark:text-amber-200/90">
+                        Suggested next — opens before due
+                      </p>
+                    )}
+                    <div className="mt-auto space-y-2">
+                      <p className="text-xs leading-relaxed text-muted-foreground">
+                        <span className="font-medium text-foreground/80">Due</span>{" "}
+                        {new Date(a.dueAt).toLocaleString(undefined, {
+                          dateStyle: "medium",
+                          timeStyle: "short",
+                        })}
+                      </p>
+                      <div
+                        className="flex w-full items-center justify-between rounded-md border border-sky-200/80 bg-muted/50 px-2.5 py-1.5 dark:border-sky-800/50"
+                        title="Problems completed in latest attempt"
+                      >
+                        <span className="text-[11px] font-medium text-muted-foreground">Completed</span>
+                        <span className="font-mono text-sm font-semibold tabular-nums text-foreground">
+                          {a.latestSession?.aggregate?.problemsCompleted ?? 0}
+                          <span className="ml-1 text-xs font-normal text-muted-foreground">problems</span>
+                        </span>
                       </div>
                     </div>
-                    <span className="text-xs font-mono px-2 py-1 rounded bg-background/50 border border-border/60 shrink-0">
-                      {a.latestSession?.aggregate?.problemsCompleted ?? 0} solved
-                    </span>
                   </div>
                 </button>
               );
